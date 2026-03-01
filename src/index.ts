@@ -1,40 +1,66 @@
-/**
- * Welcome to Cloudflare Workers!
- *
- * This is a template for a Scheduled Worker: a Worker that can run on a
- * configurable interval:
- * https://developers.cloudflare.com/workers/platform/triggers/cron-triggers/
- *
- * - Run `npm run dev` in your terminal to start a development server
- * - Run `curl "http://localhost:8787/__scheduled?cron=*+*+*+*+*"` to see your Worker in action
- * - Run `npm run deploy` to publish your Worker
- *
- * Bind resources to your Worker in `wrangler.jsonc`. After adding bindings, a type definition for the
- * `Env` object can be regenerated with `npm run cf-typegen`.
- *
- * Learn more at https://developers.cloudflare.com/workers/
- */
+import { ImapClient } from './imap';
+import { notifyDiscord } from './discord';
+import type { Account } from './config';
+
+async function processAccount(account: Account, env: Env): Promise<void> {
+  const kvKey = `lastUID:${account.name}`;
+  const stored = await env.MAIL_STATE.get(kvKey);
+  const lastUID = stored !== null ? parseInt(stored) : 0;
+
+  const client = new ImapClient();
+  try {
+    await client.connect(account.host, account.port);
+    await client.login(account.user, account.password);
+
+    // UIDNEXT - 1 = highest existing UID (0 when mailbox is empty)
+    const currentMaxUID = await client.selectInbox();
+
+    if (lastUID === 0) {
+      // First run: set the baseline so we don't flood Discord with old mail
+      console.log(`[${account.name}] First run — baseline UID set to ${currentMaxUID}`);
+      await env.MAIL_STATE.put(kvKey, String(currentMaxUID));
+      return;
+    }
+
+    if (currentMaxUID <= lastUID) {
+      console.log(`[${account.name}] No new messages`);
+      return;
+    }
+
+    const newUIDs = await client.searchUidSince(lastUID);
+    console.log(`[${account.name}] ${newUIDs.length} new message(s)`);
+
+    if (newUIDs.length === 0) return;
+
+    const messages = await client.fetchMessages(newUIDs);
+
+    for (const msg of messages) {
+      await notifyDiscord(env.DISCORD_WEBHOOK, account.name, msg);
+    }
+
+    const maxNewUID = Math.max(...newUIDs);
+    await env.MAIL_STATE.put(kvKey, String(maxNewUID));
+  } finally {
+    await client.logout();
+  }
+}
 
 export default {
-	async fetch(req) {
-		const url = new URL(req.url);
-		url.pathname = '/__scheduled';
-		url.searchParams.append('cron', '* * * * *');
-		return new Response(`To test the scheduled handler, ensure you have used the "--test-scheduled" then try running "curl ${url.href}".`);
-	},
+  async fetch(): Promise<Response> {
+    return new Response(
+      'mail-puller is running.\n' + 'Test the scheduled handler locally:\n' + '  curl "http://localhost:8787/__scheduled?cron=*+*+*+*+*"',
+    );
+  },
 
-	// The scheduled handler is invoked at the interval set in our wrangler.jsonc's
-	// [[triggers]] configuration.
-	async scheduled(event, env, ctx): Promise<void> {
-		// A Cron Trigger can make requests to other endpoints on the Internet,
-		// publish to a Queue, query a D1 Database, and much more.
-		//
-		// We'll keep it simple and make an API call to a Cloudflare API:
-		let resp = await fetch('https://api.cloudflare.com/client/v4/ips');
-		let wasSuccessful = resp.ok ? 'success' : 'fail';
+  async scheduled(_event: ScheduledController, env: Env, _ctx: ExecutionContext): Promise<void> {
+    const accounts: Account[] = JSON.parse(env.ACCOUNTS_JSON);
+    const results = await Promise.allSettled(accounts.map((account) => processAccount(account, env)));
 
-		// You could store this result in KV, write to a D1 Database, or publish to a Queue.
-		// In this template, we'll just log the result:
-		console.log(`trigger fired at ${event.cron}: ${wasSuccessful}`);
-	},
+    for (let i = 0; i < results.length; i++) {
+      const r = results[i];
+      if (r.status === 'rejected') {
+        console.error(`[${accounts[i].name}] Error:`, r.reason);
+      }
+    }
+  },
 } satisfies ExportedHandler<Env>;

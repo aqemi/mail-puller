@@ -3,47 +3,62 @@
  * https://developers.cloudflare.com/workers/wrangler/configuration/
  */
 {
-	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "mail-puller",
-	"main": "src/index.ts",
-	"compatibility_date": "2026-02-28",
-	"observability": {
-		"enabled": true
-	},
-	"triggers": {
-		"crons": [
-			"* * * * *"
-		]
-	},
-	"compatibility_flags": [
-		"nodejs_compat"
-	]
-	/**
-	 * Smart Placement
-	 * https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement
-	 */
-	// "placement": {  "mode": "smart" }
-	/**
-	 * Bindings
-	 * Bindings allow your Worker to interact with resources on the Cloudflare Developer Platform, including
-	 * databases, object storage, AI inference, real-time communication and more.
-	 * https://developers.cloudflare.com/workers/runtime-apis/bindings/
-	 */
-	/**
-	 * Environment Variables
-	 * https://developers.cloudflare.com/workers/wrangler/configuration/#environment-variables
-	 * Note: Use secrets to store sensitive data.
-	 * https://developers.cloudflare.com/workers/configuration/secrets/
-	 */
-	// "vars": {  "MY_VARIABLE": "production_value" }
-	/**
-	 * Static Assets
-	 * https://developers.cloudflare.com/workers/static-assets/binding/
-	 */
-	// "assets": {  "directory": "./public/",  "binding": "ASSETS" }
-	/**
-	 * Service Bindings (communicate between multiple Workers)
-	 * https://developers.cloudflare.com/workers/wrangler/configuration/#service-bindings
-	 */
-	// "services": [  {   "binding": "MY_SERVICE",   "service": "my-service"  } ]
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "mail-puller",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-02-28",
+  "observability": {
+    "enabled": true,
+  },
+  "workers_dev": false,
+  "preview_urls": false,
+  "triggers": {
+    "crons": ["20 16 * *"],
+  },
+  "compatibility_flags": ["nodejs_compat"],
+  /**
+   * KV Namespace for tracking last-seen UIDs per account.
+   * Steps to create:
+   *   1. Run: wrangler kv namespace create MAIL_STATE
+   *   2. Copy the returned id into the "id" field below.
+   *   3. Run: npm run cf-typegen   (regenerates worker-configuration.d.ts)
+   *
+   * Set the Discord webhook URL as a secret:
+   *   wrangler secret put DISCORD_WEBHOOK
+   */
+  "kv_namespaces": [
+    {
+      "binding": "MAIL_STATE",
+      "id": "99a93ac5d36e4b4aac6dd8b9be12b46b",
+      "remote": true,
+    },
+  ],
+  /**
+   * Smart Placement
+   * https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement
+   */
+  // "placement": {  "mode": "smart" }
+  /**
+   * Bindings
+   * Bindings allow your Worker to interact with resources on the Cloudflare Developer Platform, including
+   * databases, object storage, AI inference, real-time communication and more.
+   * https://developers.cloudflare.com/workers/runtime-apis/bindings/
+   */
+  /**
+   * Environment Variables
+   * https://developers.cloudflare.com/workers/wrangler/configuration/#environment-variables
+   * Note: Use secrets to store sensitive data.
+   * https://developers.cloudflare.com/workers/configuration/secrets/
+   */
+  // "vars": {  "MY_VARIABLE": "production_value" }
+  /**
+   * Static Assets
+   * https://developers.cloudflare.com/workers/static-assets/binding/
+   */
+  // "assets": {  "directory": "./public/",  "binding": "ASSETS" }
+  /**
+   * Service Bindings (communicate between multiple Workers)
+   * https://developers.cloudflare.com/workers/wrangler/configuration/#service-bindings
+   */
+  // "services": [  {   "binding": "MY_SERVICE",   "service": "my-service"  } ]
 }
